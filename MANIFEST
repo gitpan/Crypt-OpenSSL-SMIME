@@ -1,5 +1,6 @@
 MANIFEST
 README
+CHANGES
 Makefile.PL
 SMIME.pm
 SMIME.xs

@@ -18,7 +18,7 @@ Crypt::OpenSSL::SMIME - signing and encrypting messages with S/MIME standard usi
 use Crypt::OpenSSL::SMIME;
 
  $smime = new Crypt::OpenSSL::SMIME({
-   signer_mail     => 'sender@test.com',
+   signer_from     => 'sender@test.com',
    signer_cert     => 'sender.crt',
    signer_key     => 'sender.key',
    signer_key_pass => 'mysecurepassword',
@@ -62,7 +62,7 @@ want your root CA certificate as weel. I hope i used well known words here.
 Takes reference to hash as parameter. Probably not good idea though.
 Hash keys:
 
- signer_mail - email address of the sender (From: )
+ signer_from - email address of the sender (From: )
  signer_cert - filename with sender certificate file
  signer_key - filename with sender key file 
  signer_key_pass - password for sender key
@@ -116,7 +116,7 @@ require AutoLoader;
 	
 );
 
-$VERSION = '0.01';
+$VERSION = '0.02';
 
 sub AUTOLOAD {
     # This AUTOLOAD is used to 'autoload' constants from the constant()
