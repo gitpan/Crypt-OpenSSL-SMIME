@@ -1,3 +1,0 @@
-2003.02.18 
-	fixed POD documentation to mention correct key name for new. Was 
-	'signer_mail' must be: 'signer_from'. Version bumped to 0.02

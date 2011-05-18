@@ -28,13 +28,13 @@
 #define NETSCAPE_CERT_HDR	"certificate"
 #define APP_PASS_LEN	1024
 
-/* FIXME: it is only to have thye macro !!!! may be conflicting with global symbols !!!*/
+
 SV** value;
+int i;
+int len;
 char *copy_value;
-
-
-/* FIXME Why is it global ??? */
 char *pass_for_signer_key;
+HV *lang_hash;
 SV *hash_value;
 
 #define string_from_hash(hash, key, klen, result) \
@@ -42,16 +42,18 @@ SV *hash_value;
 	if (value == NULL)	{ \
 		warn("Crypt::OpenSSL::SMIME: unable to get value for key '%s'", key); \
 	} else {\
-		copy_value = SvPV(*value, klen ); \
-		result = (char*)safemalloc( ++klen); \
-		strncpy( result, copy_value, klen); \
+		copy_value = SvPV(*value, len); \
+		result = (char*)safemalloc( ++len); \
+		strncpy( result, copy_value, len); \
 	} \
 
 typedef struct {
 	char *From;
+    char *rootCA;
     char *rcpt_cert_file;
     char *signerfile;
     char *signer_key_file;
+    char *pass_for_root_CA;
     char *pass_for_signer_key;
 	char *outfile;
     int flags;
@@ -73,6 +75,30 @@ typedef struct {
 } openssl_smime_struct;
 
 
+X509_STORE *loadRootCA(char *CAfile)
+{
+	X509_STORE *store;
+	X509_LOOKUP *lookup;
+	if(!(store = X509_STORE_new())) goto end;
+    /* storing cert from file into store */
+	lookup=X509_STORE_add_lookup(store,X509_LOOKUP_file());
+	if (lookup == NULL) goto end;
+	if(!X509_LOOKUP_load_file(lookup,CAfile,X509_FILETYPE_PEM)) {
+			fprintf(stderr, "Crypt::OpenSSL::SMIME: Error loading file %s\n", CAfile);
+			goto end;
+	}
+    
+	lookup=X509_STORE_add_lookup(store,X509_LOOKUP_hash_dir());
+    
+    X509_LOOKUP_add_dir(lookup,NULL,X509_FILETYPE_DEFAULT);
+    
+	ERR_clear_error();
+	return store;
+	end:
+	X509_STORE_free(store);
+	return NULL;
+}
+
 int yasp_pass_cb(char *buf, int size, int rwflag, void *u)
 {
 	int len;
@@ -88,7 +114,6 @@ EVP_PKEY *load_key(BIO *err, char *file, int format, char *pass, openssl_smime_s
 	{
 	BIO *key=NULL;
 	EVP_PKEY *pkey=NULL;
-	int len;
 
 	if (file == NULL)
 		{
@@ -138,9 +163,11 @@ EVP_PKEY *load_key(BIO *err, char *file, int format, char *pass, openssl_smime_s
 	return(pkey);
 }
 
+/* we read only in PEM format !!!! */
+
 X509 *load_cert(BIO *err, char *file, int format)
 	{
-	ASN1_HEADER *ah=NULL;
+
 	BUF_MEM *buf=NULL;
 	X509 *x=NULL;
 	BIO *cert;
@@ -161,52 +188,7 @@ X509 *load_cert(BIO *err, char *file, int format)
 			}
 		}
 
-	if 	(format == FORMAT_ASN1)
-		x=d2i_X509_bio(cert,NULL);
-	else if (format == FORMAT_NETSCAPE)
-		{
-		unsigned char *p,*op;
-		int size=0,i;
-
-		/* We sort of have to do it this way because it is sort of nice
-		 * to read the header first and check it, then
-		 * try to read the certificate */
-		buf=BUF_MEM_new();
-		for (;;)
-			{
-			if ((buf == NULL) || (!BUF_MEM_grow(buf,size+1024*10)))
-				goto end;
-			i=BIO_read(cert,&(buf->data[size]),1024*10);
-			size+=i;
-			if (i == 0) break;
-			if (i < 0)
-				{
-				perror("reading certificate");
-				goto end;
-				}
-			}
-		p=(unsigned char *)buf->data;
-		op=p;
-
-		/* First load the header */
-		if ((ah=d2i_ASN1_HEADER(NULL,&p,(long)size)) == NULL)
-			goto end;
-		if ((ah->header == NULL) || (ah->header->data == NULL) ||
-			(strncmp(NETSCAPE_CERT_HDR,(char *)ah->header->data,
-			ah->header->length) != 0))
-			{
-			fprintf(stderr, "Crypt::OpenSSL::SMIME: Error reading header on certificate\n");
-			goto end;
-			}
-		/* header is ok, so now read the object */
-		p=op;
-		ah->meth=X509_asn1_meth();
-		if ((ah=d2i_ASN1_HEADER(&ah,&p,(long)size)) == NULL)
-			goto end;
-		x=(X509 *)ah->data;
-		ah->data=NULL;
-		}
-	else if (format == FORMAT_PEM)
+	if (format == FORMAT_PEM)
 		x=PEM_read_bio_X509_AUX(cert,NULL,NULL,NULL);
 	else if (format == FORMAT_PKCS12)
 		{
@@ -225,7 +207,7 @@ end:
 		{
 		fprintf(stderr, "Crypt::OpenSSL::SMIME: unable to load certificate\n");
 		}
-	if (ah != NULL) ASN1_HEADER_free(ah);
+
 	if (cert != NULL) BIO_free(cert);
 	if (buf != NULL) BUF_MEM_free(buf);
 	return(x);
@@ -242,7 +224,6 @@ new(CLASS, hashref, ... )
 		SV* hashref
     PREINIT: 
 		HV *hash;
-		int tmplen;
     CODE:
 		hash = (HV *) SvRV(hashref);
 		RETVAL = (openssl_smime_struct*)safemalloc( sizeof( openssl_smime_struct ) );
@@ -250,20 +231,13 @@ new(CLASS, hashref, ... )
 			warn("Crypt::OpenSSL::SMIME: unable to malloc openssl_smime_struct");
 			XSRETURN_UNDEF;
 		}
-		tmplen = 11;
-		string_from_hash(hash, "signer_from", tmplen, RETVAL->From);
-		//tmplen = 6;
-		//string_from_hash(hash, "rootCA", tmplen, RETVAL->rootCA);
-		tmplen = 11;
-		string_from_hash(hash, "signer_cert", tmplen, RETVAL->signerfile);
-		tmplen = 10;
-		string_from_hash(hash, "signer_key", tmplen, RETVAL->signer_key_file);
-		//tmplen = 16;
-		//string_from_hash(hash, "pass_for_root_CA", tmplen, RETVAL->pass_for_root_CA);
-		tmplen = 15;
-		string_from_hash(hash, "signer_key_pass", tmplen, RETVAL->pass_for_signer_key);
-		tmplen = 7;
-		string_from_hash(hash, "outfile", tmplen, RETVAL->outfile);
+		string_from_hash(hash, "From", 4, RETVAL->From);
+		string_from_hash(hash, "rootCA", 6, RETVAL->rootCA);
+		string_from_hash(hash, "signerfile", 10, RETVAL->signerfile);
+		string_from_hash(hash, "signer_key_file", 15, RETVAL->signer_key_file);
+		string_from_hash(hash, "pass_for_root_CA", 16, RETVAL->pass_for_root_CA);
+		string_from_hash(hash, "pass_for_signer_key", 19, RETVAL->pass_for_signer_key);
+		string_from_hash(hash, "outfile", 7, RETVAL->outfile);
 
 		RETVAL->inmode = "r";
 		RETVAL->outmode = "w+";
@@ -271,6 +245,7 @@ new(CLASS, hashref, ... )
 
 		SSLeay_add_all_algorithms();
 		RETVAL->cipher = EVP_des_ede3_cbc();
+		RETVAL->store = loadRootCA(RETVAL->rootCA);
 		RETVAL->other = NULL;
 	    RETVAL->FAILED = 0;
 
@@ -297,13 +272,14 @@ DESTROY(self, ... )
     CODE:
 		X509_free(self->signer);
 		EVP_PKEY_free(self->key);
-		//fprintf(stdout, "%s\n", self->store);
-		//X509_STORE_free(self->store);
+		X509_STORE_free(self->store);
 	    BIO_free(self->in) ;
 
 		safefree( (char*)self->From );
+		safefree( (char*)self->rootCA );
 		safefree( (char*)self->signerfile );
 		safefree( (char*)self->signer_key_file );
+		safefree( (char*)self->pass_for_root_CA );
 		safefree( (char*)self->pass_for_signer_key );
 		safefree( (char*)self->outfile );
 		safefree( (char*)self );
@@ -363,9 +339,9 @@ encryptData( self, rcpt_cert_file, rcpt, subject, ... )
 			fprintf(stderr, "Crypt::OpenSSL::SMIME: Can't open output file %s\n", self->outfile);
 		}
 
-	    //BIO_printf(self->out, "To: %s\n", rcpt);
-	    //BIO_printf(self->out, "From: %s\n", self->From);
-	    //BIO_printf(self->out, "Subject: %s\n", subject);
+	    BIO_printf(self->out, "To: %s\n", rcpt);
+	    BIO_printf(self->out, "From: %s\n", self->From);
+	    BIO_printf(self->out, "Subject: %s\n", subject);
 
 		SMIME_write_PKCS7(self->out, self->p7, self->in, self->flags);
 		PKCS7_free(self->p7);
