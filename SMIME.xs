@@ -28,7 +28,6 @@
 #define NETSCAPE_CERT_HDR	"certificate"
 #define APP_PASS_LEN	1024
 
-
 SV** value;
 int i;
 int len;
@@ -167,7 +166,6 @@ EVP_PKEY *load_key(BIO *err, char *file, int format, char *pass, openssl_smime_s
 
 X509 *load_cert(BIO *err, char *file, int format)
 	{
-
 	BUF_MEM *buf=NULL;
 	X509 *x=NULL;
 	BIO *cert;
