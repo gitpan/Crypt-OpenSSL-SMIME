@@ -6,56 +6,32 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 use strict;
-use vars qw/$loaded/;
 
-BEGIN { $| = 1; print "1..5\n";}
-END {print "not ok 1\n" unless $loaded;}
+use Test::Simple tests => 5;
 
 use Crypt::OpenSSL::SMIME;
-use UNIVERMAG::Keys;
 
-$loaded = 1;
-print "ok 1\n";
+my $pass = '123456';
+my $from_email = 'sender@test.com';
 
 {
-      my $aaa = new Crypt::OpenSSL::SMIME({
-                  From                => 'univermag-encryption-service@yasp.com',
-                  rootCA              => 'Cert/ca.crt',
-                  signerfile          => 'Cert/univermag.crt',
-                  signer_key_file     => 'Cert/univermag.key',
-                  pass_for_root_CA    => $KEYS_P{root_CA},
-                  pass_for_signer_key => $KEYS_P{univermag},
-                  outfile             => 'result.txt',
+	  my $obj = new Crypt::OpenSSL::SMIME({
+                  From                => $from_email,
+                  rootCA              => 't/ca.crt',
+                  signerfile          => 't/sender.crt',
+                  signer_key_file     => 't/sender.key',
+                  pass_for_root_CA    => $pass,
+                  pass_for_signer_key => $pass,
+                  outfile             =>  't/MailEncrypted.txt'
             });
 
-        if ($aaa->failed()) {
-            print 'Failed to create object Crypt::OpenSSL::SMIME';
-            exit 0;
-        }
-        print "ok 2\n";
-
-        if ($aaa->loadDataFile('Data/2.txt')) {
-           print "ok 3\n";
-        } else {
-           print "Failed to load file Data/2.txt\n";
-           exit 0;
-        }
-
-        
-        if ($aaa->encryptData('Cert/max.crt', 'max@yasp.com', 'Here is Your Invoice')) {
-           print "ok 4\n";
-        } else {
-           print "Failed to create encrypted file result.txt\n";
-           exit 0;
-        }
-
-        #if ($aaa->encryptData('Cert/dima.crt', 'dima@yasp.com', 'Here is Your Invoice')) {
-        #  print "ok 5\n";
-        #} else {
-        #   print "Failed to create encrypted file result.txt\n";
-        #   exit 0;
-        #}
-
+        ok( defined $obj, 'new() returned something' );
+		ok( $obj->isa('Crypt::OpenSSL::SMIME'), "  and it's the right class" );
+		ok( !$obj->failed(), "  and it's not failed" );
+		if (-e 't/MailForSend.txt') {
+			ok( $obj->loadDataFile('t/MailForSend.txt'), "  loadDataFile()" );
+			ok( $obj->encryptData('t/recipient.crt', 'recipient@test.com', 'Some subject'), "  encryptData()" );
+		}
 }
 
 print "done\n";

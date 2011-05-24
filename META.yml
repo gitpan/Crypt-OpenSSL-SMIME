@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Crypt-OpenSSL-SMIME
-version:            0.04
+version:            0.05
 abstract:           ~
 author:  []
 license:            unknown
